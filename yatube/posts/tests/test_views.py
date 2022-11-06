@@ -259,7 +259,7 @@ class PostPagesTests(TestCase):
         )
         response = self.authorized_author.get(address)
         self.assertIn(post, response.context.get('page_obj'))
-        
+
         follow.delete()
         response = self.authorized_author.get(address)
         self.assertNotIn(post, response.context.get('page_obj'))
