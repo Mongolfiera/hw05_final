@@ -102,9 +102,9 @@ class PostPagesTests(TestCase):
         cache.clear()
         self.guest_client = Client()
         self.authorized_client = Client()
-        self.authorized_client.force_login(PostPagesTests.user)
+        self.authorized_client.force_login(self.user)
         self.authorized_author = Client()
-        self.authorized_author.force_login(PostPagesTests.author)
+        self.authorized_author.force_login(self.author)
 
     def test_pages_uses_correct_template(self):
         """Во view-функциях используются правильные шаблоны."""
@@ -236,12 +236,11 @@ class PostPagesTests(TestCase):
         response = (self.authorized_author.get(urls_not_include))
         self.assertNotIn(post, response.context.get('page_obj'))
 
-    def test_following_unfollowing(self):
-        '''Авторизованный пользователь может подписываться
-           на других пользователей и удалять их из подписок.
-           Новая запись пользователя появляется в ленте тех, кто
-           на него подписан и не появляется в ленте тех, кто не подписан.
-        '''
+    def test_following(self):
+        """Авторизованный пользователь может подписываться на других
+           пользователей. Запись пользователя есть в ленте тех, кто
+           на него подписан и нет в ленте тех, кто не подписан.
+        """
         post = Post.objects.create(
             text=f'{POST_TEST_TEXT} follow',
             author=PostPagesTests.user,
@@ -253,19 +252,62 @@ class PostPagesTests(TestCase):
         response = self.authorized_author.get(address)
         self.assertNotIn(post, response.context.get('page_obj'))
 
-        follow = Follow.objects.create(
+        Follow.objects.create(
             user=PostPagesTests.author,
             author=PostPagesTests.user
         )
         response = self.authorized_author.get(address)
         self.assertIn(post, response.context.get('page_obj'))
 
-        follow.delete()
-        response = self.authorized_author.get(address)
+    def test_unfollowing(self):
+        """Авторизованный пользователь может
+           удалять других пользователей из подписок.
+           Запись пользователя есть в ленте тех, кто
+           на него подписан и нет в ленте тех, кто не подписан.
+        """
+        post = PostPagesTests.post_with_group_0
+        address = reverse('posts:follow_index')
+
+        response = self.authorized_client.get(address)
+        self.assertIn(post, response.context.get('page_obj'))
+
+        PostPagesTests.follow.delete()
+        response = self.authorized_client.get(address)
         self.assertNotIn(post, response.context.get('page_obj'))
 
-    def test_cache_index_page(self):
-        '''Страница index.html кэшируется корректно'''
+    def test_new_post_appears_on_following_not_unfollowing(self):
+        """Новая запись пользователя появляется в ленте тех, кто
+           на него подписан и не появляется в ленте тех, кто не подписан.
+        """
+        new_post_1 = Post.objects.create(
+            text=f'{POST_TEST_TEXT} follow_1',
+            author=PostPagesTests.user,
+            group=PostPagesTests.group_0,
+            image=UPLOADED_0
+        )
+        address = reverse('posts:follow_index')
+
+        response = self.authorized_author.get(address)
+        self.assertNotIn(new_post_1, response.context.get('page_obj'))
+
+        Follow.objects.create(
+            user=PostPagesTests.author,
+            author=PostPagesTests.user
+        )
+
+        new_post_2 = Post.objects.create(
+            text=f'{POST_TEST_TEXT} follow_2',
+            author=PostPagesTests.user,
+            group=PostPagesTests.group_1,
+            image=UPLOADED_1
+        )
+        response = self.authorized_author.get(address)
+        self.assertIn(new_post_2, response.context.get('page_obj'))
+
+    def test_cache_index_page_deleted_post_remains_in_cache(self):
+        """Страница index.html кэшируется корректно.
+           Удаленная запись остается в кэше.
+        """
         post = Post.objects.create(
             text=f'{POST_TEST_TEXT} cache',
             author=PostPagesTests.author,
@@ -280,6 +322,20 @@ class PostPagesTests(TestCase):
             response_post_created.content,
             response_post_deleted.content
         )
+
+    def test_cache_clear_index_page(self):
+        """Страница index.html кэшируется корректно.
+           После очистки кэша изменения появляются.
+        """
+        post = Post.objects.create(
+            text=f'{POST_TEST_TEXT} cache',
+            author=self.author,
+            group=self.group_0,
+            image=UPLOADED_0
+        )
+        address = reverse('posts:index')
+        response_post_created = self.authorized_client.get(address)
+        post.delete()
         cache.clear()
         response_cache_cleared = self.authorized_client.get(address)
         self.assertNotEqual(
@@ -295,10 +351,10 @@ class PaginatorViewsTest(TestCase):
         cls.author = User.objects.create_user(username='TestAuthor')
         cls.group = Group.objects.create(**GROUP_TEST_DATA_0)
         posts = [
-            Post(text=f'{POST_TEST_TEXT} {num + 1}',
+            Post(text=f'{POST_TEST_TEXT} {post_number}',
                  author=cls.author,
                  group=cls.group)
-            for num in range(TOTAL_POSTS_NUM)
+            for post_number in range(1, TOTAL_POSTS_NUM + 1)
         ]
         Post.objects.bulk_create(posts)
 

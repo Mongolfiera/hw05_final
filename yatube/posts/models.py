@@ -95,5 +95,13 @@ class Follow(models.Model):
         related_name='following'
     )
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                name='user_author_pair_unique',
+                fields=['user', 'author'],
+            ),
+        ]
+
     def __str__(self):
         return f'{self.user} follows {self.author}'

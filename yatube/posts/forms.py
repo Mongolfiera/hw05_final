@@ -10,11 +10,13 @@ class PostForm(forms.ModelForm):
         fields = ('text', 'group', 'image')
         help_texts = {
             'text': _('Введите текст сообщения.'),
-            'group': _('Выберите группу для сообщения.')
+            'group': _('Выберите группу для сообщения.'),
+            'image': _('Выберите изображение.')
         }
         labels = {
             'text': _('Текст поста'),
-            'group': _('Группа')
+            'group': _('Группа'),
+            'image': _('Изображение')
         }
 
     def clean_text(self):

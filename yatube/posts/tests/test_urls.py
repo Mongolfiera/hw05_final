@@ -39,9 +39,9 @@ class PostURLTests(TestCase):
         cache.clear()
         self.guest_client = Client()
         self.authorized_client = Client()
-        self.authorized_client.force_login(PostURLTests.user)
+        self.authorized_client.force_login(self.user)
         self.authorized_author = Client()
-        self.authorized_author.force_login(PostURLTests.author)
+        self.authorized_author.force_login(self.author)
         self.urls_resp_status = {
             reverse('posts:index'): {
                 'unauth': HTTPStatus.OK,
@@ -51,7 +51,7 @@ class PostURLTests(TestCase):
             },
             reverse(
                 'posts:group_posts',
-                kwargs={'slug': PostURLTests.group.slug}
+                kwargs={'slug': self.group.slug}
             ): {
                 'unauth': HTTPStatus.OK,
                 'auth': HTTPStatus.OK,
@@ -75,7 +75,7 @@ class PostURLTests(TestCase):
             },
             reverse(
                 'posts:post_detail',
-                kwargs={'post_id': PostURLTests.post.pk}
+                kwargs={'post_id': self.post.pk}
             ): {
                 'unauth': HTTPStatus.OK,
                 'auth': HTTPStatus.OK,
@@ -84,7 +84,7 @@ class PostURLTests(TestCase):
             },
             reverse(
                 'posts:post_edit',
-                kwargs={'post_id': PostURLTests.post.pk}
+                kwargs={'post_id': self.post.pk}
             ): {
                 'unauth': HTTPStatus.FOUND,
                 'auth': HTTPStatus.FOUND,
@@ -93,7 +93,7 @@ class PostURLTests(TestCase):
             },
             reverse(
                 'posts:add_comment',
-                kwargs={'post_id': PostURLTests.post.pk}
+                kwargs={'post_id': self.post.pk}
             ): {
                 'unauth': HTTPStatus.FOUND,
                 'auth': HTTPStatus.FOUND,
@@ -108,7 +108,7 @@ class PostURLTests(TestCase):
             },
             reverse(
                 'posts:profile_follow',
-                kwargs={'username': PostURLTests.author}
+                kwargs={'username': self.author}
             ): {
                 'unauth': HTTPStatus.FOUND,
                 'auth': HTTPStatus.FOUND,
@@ -117,7 +117,7 @@ class PostURLTests(TestCase):
             },
             reverse(
                 'posts:profile_unfollow',
-                kwargs={'username': PostURLTests.author}
+                kwargs={'username': self.author}
             ): {
                 'unauth': HTTPStatus.FOUND,
                 'auth': HTTPStatus.FOUND,
