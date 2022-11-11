@@ -63,34 +63,30 @@ class PostPagesTests(TestCase):
         cls.group_0 = Group.objects.create(**GROUP_TEST_DATA_0)
         cls.group_1 = Group.objects.create(**GROUP_TEST_DATA_1)
         cls.post_with_group_0 = Post.objects.create(
-            text=f'{POST_TEST_TEXT} 1',
+            text=f'1. {POST_TEST_TEXT}',
             author=cls.author,
             group=cls.group_0,
             image=UPLOADED_0
         )
         cls.post_with_group_1 = Post.objects.create(
-            text=f'{POST_TEST_TEXT} 2',
+            text=f'2. {POST_TEST_TEXT}',
             author=cls.user,
             group=cls.group_1,
             image=UPLOADED_1
         )
         cls.post_no_group = Post.objects.create(
-            text=f'{POST_TEST_TEXT} 3',
+            text=f'3. {POST_TEST_TEXT}',
             author=cls.author
         )
         cls.comment_0 = Comment.objects.create(
             post=cls.post_with_group_0,
             author=cls.user,
-            text=f'{COMMENT_TEST_TEXT} 1'
+            text=f'1. {COMMENT_TEST_TEXT}'
         )
         cls.comment_1 = Comment.objects.create(
             post=cls.post_with_group_0,
             author=cls.user,
-            text=f'{COMMENT_TEST_TEXT} 2'
-        )
-        cls.follow = Follow.objects.create(
-            user=cls.user,
-            author=cls.author
+            text=f'2. {COMMENT_TEST_TEXT}'
         )
 
     @classmethod
@@ -101,8 +97,8 @@ class PostPagesTests(TestCase):
     def setUp(self):
         cache.clear()
         self.guest_client = Client()
-        self.authorized_client = Client()
-        self.authorized_client.force_login(self.user)
+        self.authorized_user = Client()
+        self.authorized_user.force_login(self.user)
         self.authorized_author = Client()
         self.authorized_author.force_login(self.author)
 
@@ -212,112 +208,177 @@ class PostPagesTests(TestCase):
     def test_post_with_group_appears_in_right_places(self):
         """Пост с группой появляется на корректных страницах."""
         post = PostPagesTests.post_with_group_0
-        urls_include = [
-            reverse('posts:index'),
+        urls_include = {
+            reverse('posts:index'): True,
             reverse(
                 'posts:group_posts',
                 kwargs={'slug': PostPagesTests.group_0.slug}
-            ),
+            ): True,
             reverse(
                 'posts:profile',
                 kwargs={'username': PostPagesTests.author}
-            )
-        ]
-        urls_not_include = reverse(
-            'posts:group_posts',
-            kwargs={'slug': PostPagesTests.group_1.slug}
-        )
+            ): True,
+            reverse(
+                'posts:group_posts',
+                kwargs={'slug': PostPagesTests.group_1.slug}
+            ): False,
+        }
 
-        for address in urls_include:
+        for address, include in urls_include.items():
             with self.subTest(address=address):
                 response = self.authorized_author.get(address)
-                self.assertIn(post, response.context.get('page_obj'))
+                if include:
+                    self.assertIn(post, response.context.get('page_obj'))
+                else:
+                    self.assertNotIn(post, response.context.get('page_obj'))
 
-        response = (self.authorized_author.get(urls_not_include))
-        self.assertNotIn(post, response.context.get('page_obj'))
 
-    def test_following(self):
-        """Авторизованный пользователь может подписываться на других
-           пользователей. Запись пользователя есть в ленте тех, кто
-           на него подписан и нет в ленте тех, кто не подписан.
-        """
-        post = Post.objects.create(
-            text=f'{POST_TEST_TEXT} follow',
-            author=PostPagesTests.user,
-            group=PostPagesTests.group_0,
+class FollowTests(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.user = User.objects.create_user(username='TestUser')
+        cls.follower = User.objects.create_user(username='TestFollower')
+        cls.author = User.objects.create_user(username='TestAuthor')
+        cls.group = Group.objects.create(**GROUP_TEST_DATA_0)
+        cls.post_with_group = Post.objects.create(
+            text=f'1. {POST_TEST_TEXT}',
+            author=cls.author,
+            group=cls.group,
             image=UPLOADED_0
         )
-        address = reverse('posts:follow_index')
-
-        response = self.authorized_author.get(address)
-        self.assertNotIn(post, response.context.get('page_obj'))
-
-        Follow.objects.create(
-            user=PostPagesTests.author,
-            author=PostPagesTests.user
+        cls.post_no_group = Post.objects.create(
+            text=f'2. {POST_TEST_TEXT}',
+            author=cls.author
         )
-        response = self.authorized_author.get(address)
-        self.assertIn(post, response.context.get('page_obj'))
+        cls.follow = Follow.objects.create(
+            user=cls.follower,
+            author=cls.author
+        )
 
-    def test_unfollowing(self):
-        """Авторизованный пользователь может
-           удалять других пользователей из подписок.
-           Запись пользователя есть в ленте тех, кто
-           на него подписан и нет в ленте тех, кто не подписан.
+    def setUp(self):
+        cache.clear()
+        self.guest_client = Client()
+        self.authorized_user = Client()
+        self.authorized_user.force_login(self.user)
+        self.authorized_follower = Client()
+        self.authorized_follower.force_login(self.follower)
+        self.authorized_author = Client()
+        self.authorized_author.force_login(self.author)
+
+    def test_follow(self):
+        """Авторизованный пользователь может подписаться на автора,
+           подписанный пользователь не может подписаться второй раз,
+           неавторизованный пользователь не может подписаться на автора,
+           автор не может подписаться на себя.
         """
-        post = PostPagesTests.post_with_group_0
-        address = reverse('posts:follow_index')
+        address = reverse(
+            'posts:profile_follow',
+            kwargs={'username': self.author.username}
+        )
+        users_to_check = {
+            self.authorized_user: 1,
+            self.authorized_follower: 0,
+            self.guest_client: 0,
+            self.authorized_author: 0,
+        }
+        for user, count in users_to_check.items():
+            follow_count = Follow.objects.count()
+            with self.subTest(address=address):
+                response = user.get(address)
+                self.assertEqual(Follow.objects.count(), follow_count + count)
+                if count:
+                    self.assertTrue(
+                        Follow.objects.filter(
+                            user=response.wsgi_request.user,
+                            author=self.author
+                        ).exists()
+                    )
+                    follow = Follow.objects.last()
+                    self.assertEqual(follow.user, self.user)
+                    self.assertEqual(follow.author, self.author)
+                    follow.delete()
 
-        response = self.authorized_client.get(address)
-        self.assertIn(post, response.context.get('page_obj'))
-
-        PostPagesTests.follow.delete()
-        response = self.authorized_client.get(address)
-        self.assertNotIn(post, response.context.get('page_obj'))
+    def test_unfollow(self):
+        """Авторизованный пользователь может отписаться от подписки."""
+        Follow.objects.create(
+            user=self.user,
+            author=self.author
+        )
+        address = reverse(
+            'posts:profile_unfollow',
+            kwargs={'username': self.author.username}
+        )
+        follow_count = Follow.objects.count()
+        self.authorized_user.get(address)
+        self.assertEqual(Follow.objects.count(), follow_count - 1)
+        self.assertFalse(
+            Follow.objects.filter(
+                user=self.user,
+                author=self.author
+            ).exists()
+        )
 
     def test_new_post_appears_on_following_not_unfollowing(self):
         """Новая запись пользователя появляется в ленте тех, кто
            на него подписан и не появляется в ленте тех, кто не подписан.
         """
-        new_post_1 = Post.objects.create(
-            text=f'{POST_TEST_TEXT} follow_1',
-            author=PostPagesTests.user,
-            group=PostPagesTests.group_0,
+        new_post = Post.objects.create(
+            text=f'Follow {POST_TEST_TEXT}',
+            author=self.author,
+            group=FollowTests.group,
             image=UPLOADED_0
         )
+        count = Post.objects.filter(author=self.author).count()
         address = reverse('posts:follow_index')
+        users_to_check = {
+            self.authorized_follower: True,
+            self.authorized_user: False,
+            self.authorized_author: False,
+        }
+        for user, check in users_to_check.items():
+            with self.subTest(address=address):
+                response = user.get(address)
+                if check:
+                    context = response.context.get('page_obj')
+                    self.assertIn(new_post, context)
+                    self.assertEqual(len(context.object_list), count)
+                else:
+                    self.assertNotIn(
+                        new_post,
+                        response.context.get('page_obj')
+                    )
 
-        response = self.authorized_author.get(address)
-        self.assertNotIn(new_post_1, response.context.get('page_obj'))
 
-        Follow.objects.create(
-            user=PostPagesTests.author,
-            author=PostPagesTests.user
-        )
+class CacheTests(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.author = User.objects.create_user(username='TestAuthor')
+        cls.user = User.objects.create_user(username='TestUser')
+        cls.group = Group.objects.create(**GROUP_TEST_DATA_0)
 
-        new_post_2 = Post.objects.create(
-            text=f'{POST_TEST_TEXT} follow_2',
-            author=PostPagesTests.user,
-            group=PostPagesTests.group_1,
-            image=UPLOADED_1
-        )
-        response = self.authorized_author.get(address)
-        self.assertIn(new_post_2, response.context.get('page_obj'))
+    def setUp(self):
+        cache.clear()
+        self.authorized_user = Client()
+        self.authorized_user.force_login(self.user)
+        self.authorized_author = Client()
+        self.authorized_author.force_login(self.author)
 
     def test_cache_index_page_deleted_post_remains_in_cache(self):
         """Страница index.html кэшируется корректно.
            Удаленная запись остается в кэше.
         """
         post = Post.objects.create(
-            text=f'{POST_TEST_TEXT} cache',
-            author=PostPagesTests.author,
-            group=PostPagesTests.group_0,
+            text=f'Cache {POST_TEST_TEXT}',
+            author=self.author,
+            group=CacheTests.group,
             image=UPLOADED_0
         )
         address = reverse('posts:index')
-        response_post_created = self.authorized_client.get(address)
+        response_post_created = self.authorized_user.get(address)
         post.delete()
-        response_post_deleted = self.authorized_client.get(address)
+        response_post_deleted = self.authorized_user.get(address)
         self.assertEqual(
             response_post_created.content,
             response_post_deleted.content
@@ -328,30 +389,30 @@ class PostPagesTests(TestCase):
            После очистки кэша изменения появляются.
         """
         post = Post.objects.create(
-            text=f'{POST_TEST_TEXT} cache',
+            text=f'Cache {POST_TEST_TEXT}',
             author=self.author,
-            group=self.group_0,
+            group=CacheTests.group,
             image=UPLOADED_0
         )
         address = reverse('posts:index')
-        response_post_created = self.authorized_client.get(address)
+        response_post_created = self.authorized_user.get(address)
         post.delete()
         cache.clear()
-        response_cache_cleared = self.authorized_client.get(address)
+        response_cache_cleared = self.authorized_user.get(address)
         self.assertNotEqual(
             response_post_created.content,
             response_cache_cleared.content
         )
 
 
-class PaginatorViewsTest(TestCase):
+class PaginatorViewsTests(TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
         cls.author = User.objects.create_user(username='TestAuthor')
         cls.group = Group.objects.create(**GROUP_TEST_DATA_0)
         posts = [
-            Post(text=f'{POST_TEST_TEXT} {post_number}',
+            Post(text=f'{post_number}. {POST_TEST_TEXT}',
                  author=cls.author,
                  group=cls.group)
             for post_number in range(1, TOTAL_POSTS_NUM + 1)
@@ -364,11 +425,11 @@ class PaginatorViewsTest(TestCase):
             reverse('posts:index'),
             reverse(
                 'posts:group_posts',
-                kwargs={'slug': PaginatorViewsTest.group.slug}
+                kwargs={'slug': PaginatorViewsTests.group.slug}
             ),
             reverse(
                 'posts:profile',
-                kwargs={'username': PaginatorViewsTest.author}
+                kwargs={'username': PaginatorViewsTests.author}
             ),
         ]
         number_of_pages = (
